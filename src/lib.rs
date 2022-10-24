@@ -7,13 +7,13 @@ use imgui::{
 };
 use std::time::Instant;
 use thiserror::Error;
-use winapi::shared::{
-    minwindef::*,
-    windef::{HICON, HWND, POINT, RECT},
+use windows::Win32::{
+    Foundation::{GetLastError, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+    Graphics::Gdi::{ClientToScreen, ScreenToClient},
+    UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
-use winapi::um::{errhandlingapi::GetLastError, winuser::*};
 
-pub type WindowProc = unsafe extern "system" fn(HWND, UINT, WPARAM, LPARAM) -> LRESULT;
+pub type WindowProc = unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT;
 
 pub enum ProcResponse {
     NoAction,
@@ -26,6 +26,24 @@ pub struct Win32Impl {
     last_cursor: ImGuiMouseCursor,
 }
 
+#[inline]
+fn loword(l: u32) -> u16 {
+    (l & 0xffff) as u16
+}
+
+#[inline]
+fn hiword(l: u32) -> u16 {
+    ((l >> 16) & 0xffff) as u16
+}
+
+fn get_xbutton_wparam(w_param: u32) -> MOUSEHOOKSTRUCTEX_MOUSE_DATA {
+    MOUSEHOOKSTRUCTEX_MOUSE_DATA(hiword(w_param) as u32)
+}
+
+fn get_wheel_delta_wparam(w_param: u32) -> u32 {
+    hiword(w_param) as u32
+}
+
 impl Win32Impl {
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn init(imgui: &mut Context, hwnd: HWND) -> Result<Win32Impl, Win32ImplError> {
@@ -35,22 +53,22 @@ impl Win32Impl {
         io.backend_flags.insert(BackendFlags::HAS_MOUSE_CURSORS);
         io.backend_flags.insert(BackendFlags::HAS_SET_MOUSE_POS);
 
-        io.key_map[Key::Tab as usize] = VK_TAB as u32;
-        io.key_map[Key::LeftArrow as usize] = VK_LEFT as u32;
-        io.key_map[Key::RightArrow as usize] = VK_RIGHT as u32;
-        io.key_map[Key::UpArrow as usize] = VK_UP as u32;
-        io.key_map[Key::DownArrow as usize] = VK_DOWN as u32;
-        io.key_map[Key::PageUp as usize] = VK_PRIOR as u32;
-        io.key_map[Key::PageDown as usize] = VK_NEXT as u32;
-        io.key_map[Key::Home as usize] = VK_HOME as u32;
-        io.key_map[Key::End as usize] = VK_END as u32;
-        io.key_map[Key::Insert as usize] = VK_INSERT as u32;
-        io.key_map[Key::Delete as usize] = VK_DELETE as u32;
-        io.key_map[Key::Backspace as usize] = VK_BACK as u32;
-        io.key_map[Key::Space as usize] = VK_SPACE as u32;
-        io.key_map[Key::KeyPadEnter as usize] = VK_RETURN as u32;
-        io.key_map[Key::Escape as usize] = VK_ESCAPE as u32;
-        io.key_map[Key::KeyPadEnter as usize] = VK_RETURN as u32;
+        io.key_map[Key::Tab as usize] = VK_TAB.0 as u32;
+        io.key_map[Key::LeftArrow as usize] = VK_LEFT.0 as u32;
+        io.key_map[Key::RightArrow as usize] = VK_RIGHT.0 as u32;
+        io.key_map[Key::UpArrow as usize] = VK_UP.0 as u32;
+        io.key_map[Key::DownArrow as usize] = VK_DOWN.0 as u32;
+        io.key_map[Key::PageUp as usize] = VK_PRIOR.0 as u32;
+        io.key_map[Key::PageDown as usize] = VK_NEXT.0 as u32;
+        io.key_map[Key::Home as usize] = VK_HOME.0 as u32;
+        io.key_map[Key::End as usize] = VK_END.0 as u32;
+        io.key_map[Key::Insert as usize] = VK_INSERT.0 as u32;
+        io.key_map[Key::Delete as usize] = VK_DELETE.0 as u32;
+        io.key_map[Key::Backspace as usize] = VK_BACK.0 as u32;
+        io.key_map[Key::Space as usize] = VK_SPACE.0 as u32;
+        io.key_map[Key::KeyPadEnter as usize] = VK_RETURN.0 as u32;
+        io.key_map[Key::Escape as usize] = VK_ESCAPE.0 as u32;
+        io.key_map[Key::KeyPadEnter as usize] = VK_RETURN.0 as u32;
         io.key_map[Key::A as usize] = 'A' as u32;
         io.key_map[Key::C as usize] = 'C' as u32;
         io.key_map[Key::V as usize] = 'V' as u32;
@@ -75,9 +93,9 @@ impl Win32Impl {
 
         // Set up display size every frame to handle resizing
         let mut rect: RECT = std::mem::zeroed();
-        if FALSE == GetClientRect(self.hwnd, &mut rect) {
+        if GetClientRect(self.hwnd, &mut rect).as_bool() == false {
             return Err(Win32ImplError::ExternalError(format!(
-                "GetClientRect failed with last error `{:#X}`",
+                "GetClientRect failed with last error `{:#?}`",
                 GetLastError()
             )));
         };
@@ -93,9 +111,9 @@ impl Win32Impl {
         self.time = current_time;
 
         // Read key states
-        io.key_ctrl = (GetKeyState(VK_CONTROL) as u16 & 0x8000) != 0;
-        io.key_shift = (GetKeyState(VK_SHIFT) as u16 & 0x8000) != 0;
-        io.key_alt = (GetKeyState(VK_MENU) as u16 & 0x8000) != 0;
+        io.key_ctrl = (GetKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;
+        io.key_shift = (GetKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
+        io.key_alt = (GetKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0;
         io.key_super = false;
 
         // Mouse cursor pos and icon updates
@@ -121,7 +139,7 @@ impl Win32Impl {
             let y = io.mouse_pos[1] as i32;
             let mut pos = POINT { x, y };
 
-            if ClientToScreen(self.hwnd, &mut pos) == TRUE {
+            if ClientToScreen(self.hwnd, &mut pos).as_bool() == true {
                 SetCursorPos(pos.x, pos.y);
             }
         }
@@ -129,9 +147,9 @@ impl Win32Impl {
         io.mouse_pos = [-f32::MAX, -f32::MAX];
         let mut pos: POINT = std::mem::zeroed();
         let foreground_hwnd = GetForegroundWindow();
-        if (self.hwnd == foreground_hwnd || IsChild(foreground_hwnd, self.hwnd) == TRUE)
-            && GetCursorPos(&mut pos) == TRUE
-            && ScreenToClient(self.hwnd, &mut pos) == TRUE
+        if (self.hwnd == foreground_hwnd || IsChild(foreground_hwnd, self.hwnd).as_bool() == true)
+            && GetCursorPos(&mut pos).as_bool() == true
+            && ScreenToClient(self.hwnd, &mut pos).as_bool() == true
         {
             io.mouse_pos = [pos.x as f32, pos.y as f32];
         };
@@ -141,14 +159,16 @@ impl Win32Impl {
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn imgui_win32_window_proc(
     window: HWND,
-    msg: UINT,
-    wparam: WPARAM,
-    lparam: LPARAM,
+    msg: u32,
+    w_param: WPARAM,
+    l_param: LPARAM,
 ) -> Result<ProcResponse, Win32ImplError> {
     let io = match igGetIO().as_mut() {
         Some(io) => io,
         None => return Err(Win32ImplError::NullIO),
     };
+
+    let w_param = w_param.0 as u32;
 
     let result = match msg {
         WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONDBLCLK | WM_MBUTTONDOWN
@@ -158,7 +178,7 @@ pub unsafe fn imgui_win32_window_proc(
                 WM_RBUTTONDOWN | WM_RBUTTONDBLCLK => 1,
                 WM_MBUTTONDOWN | WM_MBUTTONDBLCLK => 2,
                 WM_XBUTTONDOWN | WM_XBUTTONDBLCLK => {
-                    if GET_XBUTTON_WPARAM(wparam) == XBUTTON1 {
+                    if get_xbutton_wparam(w_param) == XBUTTON1 {
                         3
                     } else {
                         4
@@ -167,7 +187,7 @@ pub unsafe fn imgui_win32_window_proc(
                 _ => 0,
             };
 
-            if !igIsAnyMouseDown() && GetCapture().is_null() {
+            if !igIsAnyMouseDown() && GetCapture().0 == 0 {
                 SetCapture(window);
             }
 
@@ -181,7 +201,7 @@ pub unsafe fn imgui_win32_window_proc(
                 WM_RBUTTONUP => 1,
                 WM_MBUTTONUP => 2,
                 WM_XBUTTONUP => {
-                    if GET_XBUTTON_WPARAM(wparam) == XBUTTON1 {
+                    if get_xbutton_wparam(w_param) == XBUTTON1 {
                         3
                     } else {
                         4
@@ -198,39 +218,39 @@ pub unsafe fn imgui_win32_window_proc(
         }
 
         WM_MOUSEWHEEL => {
-            io.MouseWheel += (GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA) as f32;
+            io.MouseWheel += (get_wheel_delta_wparam(w_param) / WHEEL_DELTA) as f32;
             ProcResponse::NoAction
         }
 
         WM_MOUSEHWHEEL => {
-            io.MouseWheelH += (GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA) as f32;
+            io.MouseWheelH += (get_wheel_delta_wparam(w_param) / WHEEL_DELTA) as f32;
             ProcResponse::NoAction
         }
 
         WM_KEYDOWN | WM_SYSKEYDOWN => {
-            if wparam < 256 {
-                io.KeysDown[wparam] = true;
+            if w_param < 256 {
+                io.KeysDown[w_param as usize] = true;
             }
             ProcResponse::NoAction
         }
 
         WM_KEYUP | WM_SYSKEYUP => {
-            if wparam < 256 {
-                io.KeysDown[wparam] = false;
+            if w_param < 256 {
+                io.KeysDown[w_param as usize] = false;
             }
             ProcResponse::NoAction
         }
 
         WM_CHAR => {
-            if wparam > 0 && wparam < 0x10000 {
+            if w_param > 0 && w_param < 0x10000 {
                 let ig_io = igGetIO();
-                ImGuiIO_AddInputCharacterUTF16(ig_io, wparam as u16);
+                ImGuiIO_AddInputCharacterUTF16(ig_io, w_param as u16);
             }
             ProcResponse::NoAction
         }
 
         WM_SETCURSOR => {
-            if LOWORD(lparam as u32) as isize == HTCLIENT && update_cursor() {
+            if loword(l_param.0 as u32) as u32 == HTCLIENT && update_cursor() {
                 ProcResponse::ActionTaken
             } else {
                 ProcResponse::NoAction
@@ -256,24 +276,27 @@ unsafe fn update_cursor() -> bool {
 
     let mouse_cursor = igGetMouseCursor();
     let win32_cursor = if mouse_cursor == ImGuiMouseCursor_None || io.MouseDrawCursor {
-        std::ptr::null_mut()
+        HCURSOR(0)
     } else {
         #[allow(non_upper_case_globals)]
-        match mouse_cursor {
-            ImGuiMouseCursor_Arrow => IDC_ARROW,
-            ImGuiMouseCursor_TextInput => IDC_IBEAM,
-            ImGuiMouseCursor_ResizeAll => IDC_SIZEALL,
-            ImGuiMouseCursor_ResizeEW => IDC_SIZEWE,
-            ImGuiMouseCursor_ResizeNS => IDC_SIZENS,
-            ImGuiMouseCursor_ResizeNESW => IDC_SIZENESW,
-            ImGuiMouseCursor_ResizeNWSE => IDC_SIZENWSE,
-            ImGuiMouseCursor_Hand => IDC_HAND,
-            ImGuiMouseCursor_NotAllowed => IDC_NO,
-            _ => IDC_ARROW,
-        }
+        HCURSOR(
+            match mouse_cursor {
+                ImGuiMouseCursor_Arrow => IDC_ARROW,
+                ImGuiMouseCursor_TextInput => IDC_IBEAM,
+                ImGuiMouseCursor_ResizeAll => IDC_SIZEALL,
+                ImGuiMouseCursor_ResizeEW => IDC_SIZEWE,
+                ImGuiMouseCursor_ResizeNS => IDC_SIZENS,
+                ImGuiMouseCursor_ResizeNESW => IDC_SIZENESW,
+                ImGuiMouseCursor_ResizeNWSE => IDC_SIZENWSE,
+                ImGuiMouseCursor_Hand => IDC_HAND,
+                ImGuiMouseCursor_NotAllowed => IDC_NO,
+                _ => IDC_ARROW,
+            }
+            .0 as isize,
+        )
     };
 
-    SetCursor(win32_cursor as HICON);
+    SetCursor(win32_cursor);
     true
 }
 
