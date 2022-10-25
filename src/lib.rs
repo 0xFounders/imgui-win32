@@ -1,7 +1,10 @@
 use imgui::{
     sys::{
         igGetIO, igGetMouseCursor, igIsAnyMouseDown, ImGuiConfigFlags_NoMouseCursorChange,
-        ImGuiIO_AddInputCharacterUTF16, ImGuiMouseCursor, ImGuiMouseCursor_None,
+        ImGuiIO_AddInputCharacterUTF16, ImGuiMouseCursor, ImGuiMouseCursor_Arrow,
+        ImGuiMouseCursor_Hand, ImGuiMouseCursor_None, ImGuiMouseCursor_NotAllowed,
+        ImGuiMouseCursor_ResizeAll, ImGuiMouseCursor_ResizeEW, ImGuiMouseCursor_ResizeNESW,
+        ImGuiMouseCursor_ResizeNS, ImGuiMouseCursor_ResizeNWSE, ImGuiMouseCursor_TextInput,
     },
     BackendFlags, Context, Key,
 };
